@@ -1,0 +1,4 @@
+# ~/.codex/config.toml
+[mcp_servers.schemity]
+command = "/Applications/Schemity.app/Contents/MacOS/schemity"
+args = ["--mcp"]

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "schemity": {
+      "command": "/Applications/Schemity.app/Contents/MacOS/schemity",
+      "args": [
+        "--mcp"
+      ]
+    }
+  }
+}

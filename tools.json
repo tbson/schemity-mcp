@@ -1,0 +1,258 @@
+[
+    {
+        "name": "list_diagrams",
+        "description": "Diagrams open in Schemity. Call first; every other tool takes a diagram id from here.",
+        "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+        "name": "get_schema",
+        "description": "Entities, fields, relations and legends (with the entities inside each) of a diagram, or of one context view. No coordinates. Absent keys mean default: not null, not unique, plain field. Per entity, when present: uniques (multi-column), checks and indexes, each with its name. Also the user's house style for new tables: namingConvention (snake_case or camelCase) for every new table and column name, and activeTemplate, the fields every new entity starts with. Copy activeTemplate.fields into create_entity as they are, then add your own; null means no template.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "context_view": { "type": "string", "description": "Context view name; omit for the whole diagram" }
+            },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "get_context_views",
+        "description": "Context views of a diagram with their entities, the dependencies between views, and cycles.",
+        "inputSchema": {
+            "type": "object",
+            "properties": { "diagram": { "type": "string", "description": "Id from list_diagrams" } },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "get_dependencies",
+        "description": "Relations into and out of one entity, with the columns on both sides.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "entity": { "type": "string", "description": "Entity (table) name" }
+            },
+            "required": ["diagram", "entity"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "get_data_dictionary",
+        "description": "Markdown data dictionary of a diagram or one context view. Larger than get_schema; ask for it only when descriptions matter.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "context_view": { "type": "string", "description": "Context view name; omit for the whole diagram" }
+            },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "get_pending_changes",
+        "description": "Unsaved edits of a diagram, as the undo history that produced them (newest last, at most 30). A step that moved or reshaped more than 20 tables or lines counts them per scope in movedOrReshaped instead of listing each. For what a migration would cost, or its SQL, call analyze_impact.",
+        "inputSchema": {
+            "type": "object",
+            "properties": { "diagram": { "type": "string", "description": "Id from list_diagrams" } },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "analyze_impact",
+        "description": "What the pending migration of a connected diagram would cost: data loss, failing statements, rewrites, dependents. Findings only, unless include_sql is true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "include_sql": { "type": "boolean", "description": "Also return the migration's statements, in order. Only when the user wants the SQL. Schemity never runs it for you" }
+            },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "analyze_migration_file",
+        "description": "Same analysis for a hand-written SQL migration against a connected diagram's database. Nothing is run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "sql": { "type": "string", "description": "The migration SQL" }
+            },
+            "required": ["diagram", "sql"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "lint",
+        "description": "Schema findings for a diagram: conventions, missing indexes, type mismatches. Facts, not verdicts. Over 100 findings, each rule lists its first 10 and counts has every rule's total; pass rule for all of one.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "rule": { "type": "string", "description": "Only this rule's findings, all of them, e.g. fk-no-covering-index" }
+            },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "check_relation_lines",
+        "description": "Relation lines in the live layout (unsaved edits included). overlaps: pairs where a portion of one line lies on the other or within 1px of it (reads as one line), with the shared length in px. crossings: how many times two lines cross. bends: how many corners the lines turn through in all. route_relations lowers both where the layout allows; fewer come from moving the tables the lines join closer together.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "context_view": { "type": "string", "description": "Context view name; omit for the whole diagram" }
+            },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "propose_changes",
+        "description": "Edit the active main diagram: schema, legends, context views. Edits land as unsaved changes the user reviews in History, then saves or undoes; nothing is written to the database. All or nothing. Deleting an entity, field, relation, legend or context view asks the user first and may take minutes. Result {status: applied|declined|failed, results: [{action, ok, error?}]}; an error says what to do instead. Change in place, never delete and recreate: update_entity, update_field, update_relation. Tables: create_entity (name, fields), delete_entity (name). Columns: create_field (entity, fields), update_field (entity, field, patch), delete_field (entity, field), which also drops the relation the column carries. Relations: create_relation (from: the referenced parent, to: gets the FK column, which comes from here and never from create_field), update_relation (from, to, patch), delete_relation (from, to). Rules: create_check_constraint (entity, field, values) for allowed values, or (entity, expr); create_unique_constraint (entity, columns) for columns unique together; create_index (entity, columns); delete_constraint, delete_index (entity, constraint). To change a rule, delete and create it in one call. Legends: update_legend, delete_legend (name); group_entities makes and fills them. Context views: create_context_view (name, entities), update_context_view (name, patch), delete_context_view (name).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "actions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["create_entity", "update_entity", "create_field", "update_field", "delete_field", "delete_entity", "create_relation", "update_relation", "delete_relation", "create_check_constraint", "create_unique_constraint", "delete_constraint", "create_index", "delete_index", "update_legend", "delete_legend", "create_context_view", "update_context_view", "delete_context_view"]
+                            },
+                            "name": { "type": "string", "description": "Entity name; legend or context view name for their actions" },
+                            "description": { "type": "string" },
+                            "color": { "type": "string", "description": "create_entity, create_context_view: hex" },
+                            "entities": { "type": "array", "items": { "type": "string" }, "description": "create_context_view: entity names it holds" },
+                            "fields": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": { "type": "string" },
+                                        "type": { "type": "string", "description": "SQL type, e.g. VARCHAR(255)" },
+                                        "nullable": { "type": "boolean", "description": "Absent means not null, as get_schema reads" },
+                                        "unique": { "type": "boolean" },
+                                        "primaryKey": { "type": "boolean", "description": "Several make a composite key. With none, a field named id is the key" },
+                                        "defaultValue": { "type": "string" },
+                                        "description": { "type": "string" },
+                                        "enumValues": { "type": "array", "items": { "type": "string" } }
+                                    },
+                                    "required": ["name", "type"]
+                                }
+                            },
+                            "patch": { "type": "object", "description": "update_entity: {name?, description?, color? (hex), char?, coll?, renameField?: {from, to}}; update_field: {type?, nullable?, unique?, primaryKey?, defaultValue?, description?}, defaultValue a SQL literal ('' for an empty string) or null to remove it; update_relation: {onDelete?, onUpdate? (null for none), description?, cardinality?}; update_legend: {name?, color? (hex), description?}; update_context_view: {name?, description?, color?, addEntities?: [], removeEntities?: []}. An unknown key is refused, never ignored" },
+                            "from": { "type": "string" },
+                            "to": { "type": "string" },
+                            "relType": { "type": "string", "enum": ["1:N", "1:1"] },
+                            "fieldName": { "type": "string", "description": "create_relation: name for the new FK column on `to`, optional; update_relation, delete_relation: that column, when the pair has several relations" },
+                            "onDelete": { "type": "string", "enum": ["CASCADE", "SET NULL", "RESTRICT", "NO ACTION", "SET DEFAULT"] },
+                            "onUpdate": { "type": "string", "enum": ["CASCADE", "SET NULL", "RESTRICT", "NO ACTION", "SET DEFAULT"] },
+                            "virtual": { "type": "boolean", "description": "create_relation: documents a dependency the database does not declare, over existing columns (columns, parentColumns), no FK; update_relation, delete_relation: the virtual one of two on the same pair" },
+                            "entity": { "type": "string", "description": "Every field, constraint and index action: the entity" },
+                            "field": { "type": "string", "description": "update_field, delete_field, create_check_constraint: the existing column" },
+                            "values": { "type": "array", "items": { "type": "string" }, "description": "create_check_constraint: allowed values, written as field IN (...)" },
+                            "expr": { "type": "string", "description": "create_check_constraint: a SQL condition, instead of field + values" },
+                            "columns": { "type": "array", "items": { "type": "string" }, "description": "create_unique_constraint: columns unique together (two or more); create_index: indexed columns, in order; virtual create_relation: the child's existing columns" },
+                            "parentColumns": { "type": "array", "items": { "type": "string" }, "description": "virtual create_relation: the parent's columns, its primary key when absent" },
+                            "constraint": { "type": "string", "description": "delete_constraint, delete_index: its name from get_schema" },
+                            "unique": { "type": "boolean", "description": "create_index: a unique index. For a plain uniqueness rule use create_unique_constraint" },
+                            "indexType": { "type": "string", "description": "create_index: e.g. BTREE, the dialect default when absent" }
+                        },
+                        "required": ["type"]
+                    }
+                }
+            },
+            "required": ["diagram", "actions"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "count_rows",
+        "description": "Exact row count for a finding's probe (full table scan: only when the user asks). Pass the probe object from an analyze_impact or analyze_migration_file finding, or {kind:'rows'} for the whole table.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "table": { "type": "string" },
+                "probe": { "type": "object", "description": "A finding's probe" }
+            },
+            "required": ["diagram", "table", "probe"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "group_entities",
+        "description": "Group entities of the active main diagram into legends. Decide groups from the source code when you have it, else from the user's description, else from table names. Schemity sizes each legend and places it beside the groups it shares relations with (the most connected first, whatever order you list them in), arranges the entities inside and routes relations; entities not listed stay put. An existing legend keeps its spot unless relayout is true. The same input gives the same layout; status unchanged means nothing moved. One undo step, none when unchanged. Check the lines with check_relation_lines.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "groups": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "legend": { "type": "string", "description": "Legend name; an existing legend of that name is reused" },
+                            "color": { "type": "string", "description": "Hex colour, optional" },
+                            "entities": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+                        },
+                        "required": ["legend", "entities"]
+                    }
+                },
+                "full_size": { "type": "boolean", "description": "First fit each grouped entity to show all its fields, like its own fit button. Default false keeps sizes the user set." },
+                "relayout": { "type": "boolean", "description": "Place existing legends afresh by their relations too. Default false keeps them where they are." }
+            },
+            "required": ["diagram", "groups"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "route_relations",
+        "description": "Re-route every relation of the active main diagram around the entities so lines do not cross tables, go around each other where that is cheap, and share corridors as parallel lanes. Deterministic: unchanged entities give the same routes (status unchanged, no undo step). Check the result with check_relation_lines. One undo step.",
+        "inputSchema": {
+            "type": "object",
+            "properties": { "diagram": { "type": "string", "description": "Id from list_diagrams" } },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "open_schemity",
+        "description": "Open the Schemity app, or bring it to the front. Then ask the user to open the connection you need. Returns the open diagrams, or a message when none is open.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "show_preview",
+        "description": "Draw a throwaway picture in Schemity for the user to look at. One of: pending, the diagram's unsaved edits as the migration they make (use after propose_changes: changed tables are marked and every change is listed, constraints and indexes included); sql, a migration file the same way; entities, the named tables and their neighbours, with whatever is pending on them marked and listed too. Nothing is saved or changed. Returns what is shown and the findings, so no further call is needed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diagram": { "type": "string", "description": "Id from list_diagrams" },
+                "pending": { "type": "boolean", "description": "Picture the unsaved edits: against the database, or with none, against the oldest state in History" },
+                "sql": { "type": "string", "description": "A migration file's SQL. Needs a connected diagram" },
+                "entities": { "type": "array", "items": { "type": "string" }, "description": "Entity (table) names to show as they are" },
+                "title": { "type": "string", "description": "Short caption for the picture, for example the migration's purpose" }
+            },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    }
+]

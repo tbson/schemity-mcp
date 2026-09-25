@@ -1,0 +1,11 @@
+{
+  "mcp": {
+    "schemity": {
+      "type": "local",
+      "command": [
+        "/Applications/Schemity.app/Contents/MacOS/schemity",
+        "--mcp"
+      ]
+    }
+  }
+}
