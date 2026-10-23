@@ -6,7 +6,7 @@
     },
     {
         "name": "get_schema",
-        "description": "Entities, fields, relations and legends (with the entities inside each) of a diagram, or of one context view. No coordinates. Absent keys mean default: not null, not unique, plain field. Per entity, when present: uniques (multi-column), checks and indexes, each with its name. Also the user's house style for new tables: namingConvention (snake_case or camelCase) for every new table and column name, and activeTemplate, the fields every new entity starts with. Copy activeTemplate.fields into create_entity as they are, then add your own; null means no template.",
+        "description": "Entities, fields, relations and legends (with the entities inside each) of a diagram, or of one context view. No coordinates. Absent keys mean default: not null, not unique, plain field. Per entity, when present: uniques (multi-column), checks and indexes, each with its name. An index on an expression, partial, or with NULLS NOT DISTINCT carries its key list as SQL in expr, its condition in where, and nullsNotDistinct; its columns are then only the plain ones among its keys. Also the user's house style for new tables: namingConvention (snake_case, camelCase or UPPER_SNAKE_CASE) for every new table and column name, and activeTemplate, the fields every new entity starts with. Copy activeTemplate.fields into create_entity as they are, then add your own; null means no template.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -19,7 +19,7 @@
     },
     {
         "name": "get_context_views",
-        "description": "Context views of a diagram with their entities, the dependencies between views, and cycles.",
+        "description": "Context views of a diagram with their entities, the dependencies between views, and cycles. Each dependency lists its relations, which of them are virtual (not declared as foreign keys in the database), and its kind: fk, virtual or mixed.",
         "inputSchema": {
             "type": "object",
             "properties": { "diagram": { "type": "string", "description": "Id from list_diagrams" } },
@@ -117,7 +117,7 @@
     },
     {
         "name": "propose_changes",
-        "description": "Edit the active main diagram: schema, legends, context views. Edits land as unsaved changes the user reviews in History, then saves or undoes; nothing is written to the database. All or nothing. Deleting an entity, field, relation, legend or context view asks the user first and may take minutes. Result {status: applied|declined|failed, results: [{action, ok, error?}]}; an error says what to do instead. Change in place, never delete and recreate: update_entity, update_field, update_relation. Tables: create_entity (name, fields), delete_entity (name). Columns: create_field (entity, fields), update_field (entity, field, patch), delete_field (entity, field), which also drops the relation the column carries. Relations: create_relation (from: the referenced parent, to: gets the FK column, which comes from here and never from create_field), update_relation (from, to, patch), delete_relation (from, to). Rules: create_check_constraint (entity, field, values) for allowed values, or (entity, expr); create_unique_constraint (entity, columns) for columns unique together; create_index (entity, columns); delete_constraint, delete_index (entity, constraint). To change a rule, delete and create it in one call. Legends: update_legend, delete_legend (name); group_entities makes and fills them. Context views: create_context_view (name, entities), update_context_view (name, patch), delete_context_view (name).",
+        "description": "Edit the active main diagram: schema, legends, context views. Edits land as unsaved changes the user reviews in History, then saves or undoes; nothing is written to the database. All or nothing. Deleting an entity, field, relation, legend or context view asks the user first and may take minutes, except what an agent created since the last save and the user has not edited, which is deleted without asking. Result {status: applied|declined|failed, results: [{action, ok, error?}]}; an error says what to do instead. Change in place, never delete and recreate: update_entity, update_field, update_relation. Tables: create_entity (name, fields), delete_entity (name). Columns: create_field (entity, fields), update_field (entity, field, patch), delete_field (entity, field), which also drops the relation the column carries. Relations: create_relation (from: the referenced parent, to: gets the FK column, which comes from here and never from create_field), update_relation (from, to, patch), delete_relation (from, to). Rules: create_check_constraint (entity, field, values) for allowed values, or (entity, expr); create_unique_constraint (entity, columns) for columns unique together; create_index (entity, columns); delete_constraint, delete_index (entity, constraint). To change a rule, delete and create it in one call. Legends: update_legend, delete_legend (name); group_entities makes and fills them. Context views: create_context_view (name, entities), update_context_view (name, patch), delete_context_view (name).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -142,7 +142,7 @@
                                     "type": "object",
                                     "properties": {
                                         "name": { "type": "string" },
-                                        "type": { "type": "string", "description": "SQL type, e.g. VARCHAR(255)" },
+                                        "type": { "type": "string", "description": "SQL type, e.g. VARCHAR(255) or BIGINT UNSIGNED (MySQL)" },
                                         "nullable": { "type": "boolean", "description": "Absent means not null, as get_schema reads" },
                                         "unique": { "type": "boolean" },
                                         "primaryKey": { "type": "boolean", "description": "Several make a composite key. With none, a field named id is the key" },
@@ -195,7 +195,7 @@
     },
     {
         "name": "group_entities",
-        "description": "Group entities of the active main diagram into legends. Decide groups from the source code when you have it, else from the user's description, else from table names. Schemity sizes each legend and places it beside the groups it shares relations with (the most connected first, whatever order you list them in), arranges the entities inside and routes relations; entities not listed stay put. An existing legend keeps its spot unless relayout is true. The same input gives the same layout; status unchanged means nothing moved. One undo step, none when unchanged. Check the lines with check_relation_lines.",
+        "description": "Group entities of the active main diagram into legends. Decide groups from the source code when you have it, else from the user's description, else from table names. Schemity sizes each legend and places it beside the groups it shares relations with (the most connected first, whatever order you list them in), arranges the entities inside and routes relations; entities not listed stay put. You get no coordinates: to say where new legends go, pass beside. An existing legend keeps its spot unless relayout is true. A legend whose every entity this call regroups is removed when an agent made it since the save (removedLegends); otherwise it stays, empty, listed in emptiedLegends for delete_legend. The same input gives the same layout; status unchanged means nothing moved. One undo step, none when unchanged. Check the lines with check_relation_lines.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -213,8 +213,18 @@
                         "required": ["legend", "entities"]
                     }
                 },
-                "full_size": { "type": "boolean", "description": "First fit each grouped entity to show all its fields, like its own fit button. Default false keeps sizes the user set." },
-                "relayout": { "type": "boolean", "description": "Place existing legends afresh by their relations too. Default false keeps them where they are." }
+                "full_size": { "type": "boolean", "description": "Also fit each grouped entity's height to show all its fields, like its own fit button. Grouped entities always take the width that shows their names and types in full; default false keeps the height the user set." },
+                "relayout": { "type": "boolean", "description": "Place existing legends afresh by their relations too. Default false keeps them where they are." },
+                "beside": {
+                    "type": "object",
+                    "description": "Put the legends this call places afresh on one side of an existing legend that is not in groups, e.g. {legend: \"Inventory\", side: \"right\"}: the first next to it, the rest beside each other, none crossing to its other side.",
+                    "properties": {
+                        "legend": { "type": "string", "description": "An existing legend's name" },
+                        "side": { "type": "string", "enum": ["right", "left", "below", "above"], "description": "Default right" }
+                    },
+                    "required": ["legend"],
+                    "additionalProperties": false
+                }
             },
             "required": ["diagram", "groups"],
             "additionalProperties": false
@@ -232,7 +242,7 @@
     },
     {
         "name": "open_schemity",
-        "description": "Open the Schemity app, or bring it to the front. Then ask the user to open the connection you need. Returns the open diagrams, or a message when none is open.",
+        "description": "Open the Schemity app, or bring it to the front. Returns the open diagrams, or a message when none is open.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -240,8 +250,30 @@
         }
     },
     {
+        "name": "find_diagrams",
+        "description": "Every saved diagram, open or not, best match first. The hint matches the diagram name and its database alike (users rarely know which they remember), then the workspace. Show the user the results and let them pick, then open_diagram.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Name hint from the user; empty lists all" },
+                "limit": { "type": "integer", "description": "At most this many, default 10" }
+            },
+            "additionalProperties": false
+        }
+    },
+    {
+        "name": "open_diagram",
+        "description": "Bring a diagram to the screen, opening it if it is not open; other tabs stay open. Opening one with a database may ask the user for their OS password (keychain) or to approve a password command, so tell them first.",
+        "inputSchema": {
+            "type": "object",
+            "properties": { "diagram": { "type": "string", "description": "Id from find_diagrams or list_diagrams" } },
+            "required": ["diagram"],
+            "additionalProperties": false
+        }
+    },
+    {
         "name": "show_preview",
-        "description": "Draw a throwaway picture in Schemity for the user to look at. One of: pending, the diagram's unsaved edits as the migration they make (use after propose_changes: changed tables are marked and every change is listed, constraints and indexes included); sql, a migration file the same way; entities, the named tables and their neighbours, with whatever is pending on them marked and listed too. Nothing is saved or changed. Returns what is shown and the findings, so no further call is needed.",
+        "description": "Draw a throwaway picture in Schemity for the user to look at. One of: pending, the diagram's unsaved edits as the migration they make (changed tables are marked and every change is listed, constraints and indexes included; not after your own propose_changes, whose edits the user already sees on the diagram with an Agent changes button, only when the user asks to see them); sql, a migration file the same way; entities, the named tables and their neighbours, with whatever is pending on them marked and listed too. Nothing is saved or changed. Returns what is shown and the findings, so no further call is needed.",
         "inputSchema": {
             "type": "object",
             "properties": {
